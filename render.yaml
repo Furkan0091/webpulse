@@ -1,0 +1,57 @@
+# Render Blueprint — one-click deploy of the WebPulse backend.
+#
+# Creates:
+#   - webpulse-api  : Node web service (API + in-process scheduler + workers)
+#   - webpulse-db   : managed PostgreSQL
+#   - webpulse-redis: managed Redis (Key Value)
+#
+# The frontend is deployed separately (see web/vercel.json + README "Deployment").
+services:
+  - type: web
+    name: webpulse-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build -w server
+    preDeployCommand: npm run db:deploy -w server
+    startCommand: node server/dist/index.js
+    # Seeds the "Vertex Systems" demo data after the first successful deploy.
+    initialDeployHook: npm run db:seed -w server
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: webpulse-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: webpulse-redis
+          type: keyvalue
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      # Prompts for the values below during initial Blueprint creation.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: WEB_BASE_URL
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+
+  - type: keyvalue
+    name: webpulse-redis
+    plan: free
+    # No external connections — only internal services (the API/workers) connect.
+    ipAllowList: []
+
+databases:
+  - name: webpulse-db
+    plan: free

@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Vite config emitted by `tsc -b`
+web/vite.config.js
+web/vite.config.d.ts
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Prisma
+server/prisma/*.db
+
+# Test
+coverage/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+
+# Docker
+*.pid

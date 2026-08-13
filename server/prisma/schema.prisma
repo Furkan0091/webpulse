@@ -1,0 +1,806 @@
+// WebPulse — Prisma schema
+// Multi-tenant monitoring platform. Every org-scoped record carries an
+// organizationId and all cross-tenant access is enforced at the service layer.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────── Enums ────
+
+enum Role {
+  OWNER
+  ADMIN
+  DEVELOPER
+  VIEWER
+}
+
+enum MonitorType {
+  HTTP
+  API
+  SSL
+  DNS
+  TCP
+  KEYWORD
+  JSON
+}
+
+enum MonitorStatus {
+  PENDING // created, not yet checked
+  UP
+  DOWN
+  DEGRADED
+  PAUSED
+  MAINTENANCE
+}
+
+enum CheckStatus {
+  UP
+  DOWN
+  DEGRADED
+}
+
+enum IncidentStatus {
+  INVESTIGATING
+  IDENTIFIED
+  MONITORING
+  RESOLVED
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ChannelType {
+  EMAIL
+  SLACK
+  DISCORD
+  TEAMS
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  RETRYING
+}
+
+enum AlertType {
+  MONITOR_DOWN
+  MONITOR_RECOVERED
+  RESPONSE_TIME
+  SSL_EXPIRING
+  SSL_EXPIRED
+  KEYWORD_FAIL
+  ASSERTION_FAIL
+  DNS_FAIL
+  ESCALATION
+}
+
+enum MaintenanceStatus {
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+}
+
+enum SlaStatus {
+  WITHIN_SLA
+  BREACHED
+}
+
+enum AggregationBucket {
+  HOURLY
+  DAILY
+}
+
+// ────────────────────────────────────────────────────────── Identity ─────
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  name          String
+  passwordHash  String
+  avatarUrl     String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  memberships OrganizationMember[]
+  sessions    Session[]
+  tokens      Token[]
+  apiKeys     ApiKey[]
+  auditLogs   AuditLog[]
+  notes       IncidentNote[]
+  acknowledgements Incident[]
+
+  @@map("users")
+}
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  logoUrl     String?
+  website     String?
+  industry    String?
+  description String?
+  timezone    String   @default("UTC")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members           OrganizationMember[]
+  monitors          Monitor[]
+  monitorGroups     MonitorGroup[]
+  tags              Tag[]
+  checkResults      CheckResult[]
+  incidents         Incident[]
+  alertPolicies     AlertPolicy[]
+  notificationChannels NotificationChannel[]
+  statusPages       StatusPage[]
+  maintenanceWindows MaintenanceWindow[]
+  apiKeys           ApiKey[]
+  webhooks          Webhook[]
+  notificationDeliveries NotificationDelivery[]
+  sslCertificates   SslCertificate[]
+  dnsRecords        DnsRecord[]
+  deployments       Deployment[]
+  slaPolicies       SlaPolicy[]
+  slaReports        SlaReport[]
+  auditLogs         AuditLog[]
+  activityLogs      ActivityLog[]
+  anomalies         Anomaly[]
+  aggregatedMetrics AggregatedMetric[]
+
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String       @id @default(uuid())
+  organizationId String
+  userId         String
+  role           Role         @default(DEVELOPER)
+  status         String       @default("ACTIVE") // ACTIVE | INVITED | DEACTIVATED
+  lastActiveAt   DateTime?
+  joinedAt       DateTime     @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+model Session {
+  id               String    @id @default(uuid())
+  userId           String
+  refreshTokenHash String    @unique
+  userAgent        String?
+  ip               String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  lastUsedAt       DateTime?
+  createdAt        DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Token {
+  id        String    @id @default(uuid())
+  userId    String
+  type      String // EMAIL_VERIFY | PASSWORD_RESET
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("tokens")
+}
+
+// ────────────────────────────────────────────────────────── Monitoring ───
+
+model Monitor {
+  id             String        @id @default(uuid())
+  organizationId String
+  name           String
+  type           MonitorType
+  target         String // URL / host / endpoint
+  groupId        String?
+  alertPolicyId  String?
+  createdById    String?
+
+  // Schedule
+  intervalSeconds Int    @default(60)
+  timeoutMs       Int    @default(10000)
+  enabled         Boolean @default(true)
+  paused          Boolean @default(false)
+  nextCheckAt     DateTime?
+
+  // Status (derived from checks / incidents)
+  status        MonitorStatus @default(PENDING)
+  lastCheckAt   DateTime?
+  lastCheckId   String?
+  lastResponseTimeMs Int?
+
+  // HTTP/API options
+  method         String   @default("GET") // GET POST PUT PATCH DELETE HEAD
+  headers        Json?
+  requestBody    Json? // { content, contentType }
+  auth           Json? // { type: basic|bearer|apiKey|none, ... }
+  expectedStatus Int[]    @default([200])
+  followRedirects Boolean @default(true)
+
+  // Thresholds
+  responseTimeThresholdMs Int? // mark DEGRADED above this
+  failureThreshold        Int  @default(3) // failures before incident
+  retries                 Int  @default(1) // retries per check attempt
+  severity                Severity @default(MEDIUM)
+  sslExpiryThresholdDays  Int  @default(30)
+
+  // Keyword / JSON assertion
+  keyword     String?
+  assertions  Json? // JSON-path style rules for API/JSON monitors
+
+  // DNS
+  dnsRecordType String? // A AAAA CNAME MX TXT
+  dnsExpectedValue String?
+
+  // Metadata
+  tags            Tag[]            @relation("MonitorTags")
+  dependencies    Monitor[]        @relation("MonitorDependencies")
+  dependents      Monitor[]        @relation("MonitorDependencies")
+  group           MonitorGroup?    @relation(fields: [groupId], references: [id])
+  alertPolicy     AlertPolicy?     @relation(fields: [alertPolicyId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  checkResults       CheckResult[]
+  incidents          Incident[]
+  sslCertificates    SslCertificate[]
+  dnsRecords         DnsRecord[]
+  statusPageLinks    StatusPageMonitor[]
+  maintenanceLinks   MaintenanceWindowMonitor[]
+  notificationDeliveries NotificationDelivery[]
+  slaPolicies        SlaPolicy[]
+  slaReports         SlaReport[]
+  activityLogs       ActivityLog[]
+  deployments        Deployment[]
+  anomalies          Anomaly[]
+  aggregatedMetrics  AggregatedMetric[]
+  webhooks           Webhook[]
+
+  @@index([organizationId, type])
+  @@index([organizationId, status])
+  @@index([nextCheckAt])
+  @@map("monitors")
+}
+
+model MonitorGroup {
+  id             String  @id @default(uuid())
+  organizationId String
+  name           String
+  parentId       String?
+  description    String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent       MonitorGroup? @relation("GroupHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children     MonitorGroup[] @relation("GroupHierarchy")
+  monitors     Monitor[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@map("monitor_groups")
+}
+
+model Tag {
+  id             String @id @default(uuid())
+  organizationId String
+  name           String
+  color          String @default("#6366f1")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitors     Monitor[]    @relation("MonitorTags")
+
+  @@unique([organizationId, name])
+  @@map("tags")
+}
+
+// ────────────────────────────────────────────────────────── Check data ───
+
+model CheckResult {
+  id             String      @id @default(uuid())
+  organizationId String
+  monitorId      String
+  status         CheckStatus
+  checkedAt      DateTime    @default(now())
+
+  httpStatus      Int?
+  responseTimeMs  Int?
+  error           String?
+  errorCode       String?
+  region          String      @default("us-east-1")
+
+  // Phase timing (where measurable)
+  dnsMs     Int?
+  connectMs Int?
+  tlsMs     Int?
+  transferMs Int?
+  totalMs   Int?
+
+  metadata Json? // per-type payload: headers, ssl cert, dns records, keyword match
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitor      Monitor      @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  anomalies    Anomaly[]
+
+  @@index([monitorId, checkedAt])
+  @@index([organizationId, checkedAt])
+  @@map("check_results")
+}
+
+model AggregatedMetric {
+  id             String            @id @default(uuid())
+  organizationId String
+  monitorId      String
+  bucket         AggregationBucket
+  bucketStart    DateTime
+
+  checkCount       Int
+  upCount          Int
+  downCount        Int
+  degradedCount    Int
+  uptimePct        Float
+  avgResponseTimeMs Int
+  minResponseTimeMs Int
+  maxResponseTimeMs Int
+  p50             Int
+  p95             Int
+  p99             Int
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitor      Monitor      @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@unique([monitorId, bucket, bucketStart])
+  @@index([organizationId, bucket, bucketStart])
+  @@map("aggregated_metrics")
+}
+
+// ────────────────────────────────────────────────────────── Incidents ────
+
+model Incident {
+  id             String        @id @default(uuid())
+  organizationId String
+  monitorId      String
+  title          String
+  cause          String?
+  severity       Severity
+  status         IncidentStatus @default(INVESTIGATING)
+
+  startedAt  DateTime
+  detectedAt DateTime
+  resolvedAt DateTime?
+  durationSeconds Int?
+
+  errorInfo       Json?
+  failedCheckCount Int   @default(0)
+  public          Boolean @default(true)
+
+  acknowledgedById String?
+  acknowledgedAt   DateTime?
+  acknowledgedComment String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitor      Monitor      @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  acknowledgedBy User?      @relation(fields: [acknowledgedById], references: [id], onDelete: SetNull)
+
+  events    IncidentEvent[]
+  notes     IncidentNote[]
+  deliveries NotificationDelivery[]
+
+  @@index([organizationId, status])
+  @@index([monitorId, startedAt])
+  @@map("incidents")
+}
+
+model IncidentEvent {
+  id         String   @id @default(uuid())
+  incidentId String
+  type       String // FAILED_CHECK | INCIDENT_CREATED | ALERT_SENT | ACKNOWLEDGED | NOTE_ADDED | STATUS_CHANGED | RECOVERED | RESOLVED | ESCALATED
+  message    String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId, createdAt])
+  @@map("incident_events")
+}
+
+model IncidentNote {
+  id         String   @id @default(uuid())
+  incidentId String
+  userId     String
+  content    String
+  createdAt  DateTime @default(now())
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId, createdAt])
+  @@map("incident_notes")
+}
+
+// ────────────────────────────────────────────────────────── Alerting ─────
+
+model AlertPolicy {
+  id             String  @id @default(uuid())
+  organizationId String
+  name           String  @default("Default")
+
+  notifyImmediately Boolean @default(true)
+  notifyAfterFailures Int  @default(1) // 1 = first failure; used with notifyImmediately=false
+  notifyRecovery     Boolean @default(true)
+  escalationMinutes  Int[]   @default([15, 30, 60])
+  severity           Severity @default(MEDIUM)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitors     Monitor[]
+  channels     AlertPolicyChannel[]
+
+  @@index([organizationId])
+  @@map("alert_policies")
+}
+
+model AlertPolicyChannel {
+  id         String @id @default(uuid())
+  policyId   String
+  channelId  String
+
+  policy  AlertPolicy        @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  channel NotificationChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([policyId, channelId])
+  @@map("alert_policy_channels")
+}
+
+model NotificationChannel {
+  id             String      @id @default(uuid())
+  organizationId String
+  name           String
+  type           ChannelType
+  config         Json // { email?, webhookUrl?, secret?, ... }
+  enabled        Boolean     @default(true)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  policies     AlertPolicyChannel[]
+  deliveries   NotificationDelivery[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@map("notification_channels")
+}
+
+model NotificationDelivery {
+  id             String        @id @default(uuid())
+  organizationId String
+  monitorId      String
+  incidentId     String?
+  channelId      String?
+  webhookId      String?
+  channelType    String // EMAIL | SLACK | DISCORD | TEAMS | WEBHOOK
+  alertType      AlertType
+  dedupeKey      String
+  status         DeliveryStatus @default(PENDING)
+  error          String?
+  attempts       Int           @default(0)
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+  createdAt      DateTime      @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitor      Monitor      @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  incident     Incident?    @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+  channel      NotificationChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  webhook      Webhook?     @relation(fields: [webhookId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([dedupeKey])
+  @@index([status])
+  @@map("notification_deliveries")
+}
+
+// ────────────────────────────────────────────────────────── SSL / DNS ────
+
+model SslCertificate {
+  id             String   @id @default(uuid())
+  organizationId String
+  monitorId      String
+  subject        String?
+  issuer         String?
+  serialNumber   String?
+  fingerprint    String?
+  validFrom      DateTime?
+  validTo        DateTime?
+  daysRemaining  Int?
+  tlsVersion     String?
+  checkedAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitor      Monitor      @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@index([monitorId, checkedAt])
+  @@map("ssl_certificates")
+}
+
+model DnsRecord {
+  id             String   @id @default(uuid())
+  organizationId String
+  monitorId      String
+  recordType     String
+  records        Json // resolved values
+  ttl            Int?
+  status         String // OK | ERROR
+  error          String?
+  checkedAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitor      Monitor      @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@index([monitorId, checkedAt])
+  @@map("dns_records")
+}
+
+// ────────────────────────────────────────────────────────── Status pages ──
+
+model StatusPage {
+  id             String   @id @default(uuid())
+  organizationId String
+  slug           String   @unique
+  name           String
+  description    String?
+  logoUrl        String?
+  theme          Json     @default("{}")
+  customDomain   String?
+  published      Boolean  @default(false)
+  showUptime     Boolean  @default(true)
+  showIncidents  Boolean  @default(true)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitors     StatusPageMonitor[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@map("status_pages")
+}
+
+model StatusPageMonitor {
+  id           String @id @default(uuid())
+  statusPageId String
+  monitorId    String
+  position     Int    @default(0)
+
+  statusPage StatusPage @relation(fields: [statusPageId], references: [id], onDelete: Cascade)
+  monitor    Monitor    @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@unique([statusPageId, monitorId])
+  @@map("status_page_monitors")
+}
+
+// ────────────────────────────────────────────────────────── Maintenance ──
+
+model MaintenanceWindow {
+  id             String           @id @default(uuid())
+  organizationId String
+  title          String
+  description    String?
+  startsAt       DateTime
+  endsAt         DateTime
+  status         MaintenanceStatus @default(SCHEDULED)
+  public         Boolean          @default(true)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitors     MaintenanceWindowMonitor[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, startsAt])
+  @@map("maintenance_windows")
+}
+
+model MaintenanceWindowMonitor {
+  id                  String @id @default(uuid())
+  maintenanceWindowId String
+  monitorId           String
+
+  maintenanceWindow MaintenanceWindow @relation(fields: [maintenanceWindowId], references: [id], onDelete: Cascade)
+  monitor           Monitor            @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@unique([maintenanceWindowId, monitorId])
+  @@map("maintenance_window_monitors")
+}
+
+// ────────────────────────────────────────────────────────── API / Webhooks ──
+
+model ApiKey {
+  id             String    @id @default(uuid())
+  organizationId String
+  createdById    String
+  name           String
+  prefix         String // e.g. "wp_live_"
+  keyHash        String    @unique
+  scopes         String[]
+  lastUsedAt     DateTime?
+  expiresAt      DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("api_keys")
+}
+
+model Webhook {
+  id             String   @id @default(uuid())
+  organizationId String
+  monitorId      String?
+  name           String
+  url            String
+  secret         String // signing secret (stored encrypted/hashed at rest in prod)
+  events         String[] // monitor.down, incident.created, ...
+  enabled        Boolean  @default(true)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitor      Monitor?     @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  deliveries   NotificationDelivery[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@map("webhooks")
+}
+
+// ────────────────────────────────────────────────────────── SLA / Reports ──
+
+model SlaPolicy {
+  id             String  @id @default(uuid())
+  organizationId String
+  monitorId      String?
+  name           String
+  targetUptime   Float // e.g. 99.9
+  periodDays     Int    @default(30)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitor      Monitor?     @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  reports      SlaReport[]
+
+  @@index([organizationId])
+  @@map("sla_policies")
+}
+
+model SlaReport {
+  id             String   @id @default(uuid())
+  organizationId String
+  monitorId      String?
+  slaPolicyId    String
+  periodStart    DateTime
+  periodEnd      DateTime
+  targetUptime   Float
+  actualUptime   Float
+  totalTimeSeconds Int
+  downtimeSeconds  Int
+  status         SlaStatus
+  incidentCount  Int
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitor      Monitor?     @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  slaPolicy    SlaPolicy    @relation(fields: [slaPolicyId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, periodStart])
+  @@map("sla_reports")
+}
+
+// ────────────────────────────────────────────────────────── Logs ────────
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String?
+  action         String // monitor.created, alert_policy.updated, api_key.created, ...
+  resourceType   String
+  resourceId     String?
+  metadata       Json?
+  ip             String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@map("audit_logs")
+}
+
+model ActivityLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  monitorId      String?
+  userId         String?
+  type           String
+  message        String
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitor      Monitor?     @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([monitorId, createdAt])
+  @@map("activity_logs")
+}
+
+// ────────────────────────────────────────────────────────── Observability ──
+
+model Deployment {
+  id             String   @id @default(uuid())
+  organizationId String
+  monitorId      String?
+  title          String
+  description    String?
+  startedAt      DateTime
+  endedAt        DateTime?
+  createdById    String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitor      Monitor?     @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, startedAt])
+  @@map("deployments")
+}
+
+model Anomaly {
+  id             String   @id @default(uuid())
+  organizationId String
+  monitorId      String
+  checkResultId  String?
+  type           String // RESPONSE_TIME_SPIKE
+  severity       Severity @default(MEDIUM)
+  message        String
+  metric         String
+  value          Float
+  baseline       Float?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitor      Monitor      @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  checkResult  CheckResult? @relation(fields: [checkResultId], references: [id], onDelete: SetNull)
+
+  @@index([monitorId, createdAt])
+  @@map("anomalies")
+}
