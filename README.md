@@ -412,12 +412,12 @@ Secrets (`.env`) are gitignored, so no keys get committed.
    - `CORS_ORIGINS` — your Vercel URL (e.g. `https://webpulse.vercel.app`), plus
      `http://localhost:5173` for local development.
    - `WEB_BASE_URL` — your Vercel URL.
-   - `APP_BASE_URL` — your Render API URL (e.g. `https://webpulse-api.onrender.com`).
+   - `APP_BASE_URL` — your Render API URL (`https://webpulse-api-547h.onrender.com`).
    - `RESEND_API_KEY` / `RESEND_FROM` — from Resend (see below).
 3. Render runs `prisma migrate deploy` on every deploy and seeds the demo
    company ("Vertex Systems") after the first deploy.
 
-The API is live at `https://webpulse-api.onrender.com`, with Swagger docs at
+The API is live at `https://webpulse-api-547h.onrender.com`, with Swagger docs at
 `/api/docs`.
 
 > ⚠️ Free Render web services **sleep after ~15 minutes of inactivity**, which
@@ -430,8 +430,7 @@ The API is live at `https://webpulse-api.onrender.com`, with Swagger docs at
 2. Leave **Root Directory** at the repo root — the included root `vercel.json`
    already builds only the `web` workspace (`npm run build -w web`) and serves
    `web/dist` as a SPA, so no manual build settings are required.
-3. Add the environment variable `VITE_API_URL` = your Render API URL
-   (e.g. `https://webpulse-api.onrender.com`).
+3. Add the environment variable `VITE_API_URL` = your Render API base URL,    **including the `/api` suffix** (e.g. `https://webpulse-api-547h.onrender.com/api`).
 4. Deploy. Visit the Vercel URL, log in with the demo credentials, and the
    frontend talks to the Render backend (CORS is configured via `CORS_ORIGINS`).
 
