@@ -427,8 +427,9 @@ The API is live at `https://webpulse-api.onrender.com`, with Swagger docs at
 ### 3. Deploy the frontend (Vercel)
 
 1. In Vercel: **Add New → Project**, import the repo.
-2. Set **Root Directory** to `web`, build command `npm run build`, output
-   directory `dist`.
+2. Leave **Root Directory** at the repo root — the included root `vercel.json`
+   already builds only the `web` workspace (`npm run build -w web`) and serves
+   `web/dist` as a SPA, so no manual build settings are required.
 3. Add the environment variable `VITE_API_URL` = your Render API URL
    (e.g. `https://webpulse-api.onrender.com`).
 4. Deploy. Visit the Vercel URL, log in with the demo credentials, and the
