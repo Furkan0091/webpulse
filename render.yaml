@@ -12,7 +12,9 @@ services:
     runtime: node
     plan: free
     region: oregon
-    buildCommand: npm install && npm run build -w server
+    # --include=dev forces devDependencies (@types/*, prisma, tsx) to install
+    # even though NODE_ENV=production would otherwise make npm omit them.
+    buildCommand: npm install --include=dev && npm run db:generate -w server && npm run build -w server
     # Free tier has no preDeployCommand, so run (idempotent) migrations
     # right before starting the app on every boot.
     startCommand: npm run db:deploy -w server && node server/dist/index.js
