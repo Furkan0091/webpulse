@@ -13,8 +13,9 @@ services:
     plan: free
     region: oregon
     buildCommand: npm install && npm run build -w server
-    preDeployCommand: npm run db:deploy -w server
-    startCommand: node server/dist/index.js
+    # Free tier has no preDeployCommand, so run (idempotent) migrations
+    # right before starting the app on every boot.
+    startCommand: npm run db:deploy -w server && node server/dist/index.js
     # Seeds the "Vertex Systems" demo data after the first successful deploy.
     initialDeployHook: npm run db:seed -w server
     healthCheckPath: /api/health
