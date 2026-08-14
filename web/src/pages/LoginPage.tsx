@@ -54,11 +54,6 @@ export function LoginPage() {
             Create one
           </Link>
         </div>
-        <div className="mt-6 rounded-lg bg-slate-100 p-3 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-          <div className="font-medium">Demo account</div>
-          <div>furqan@vertex.systems</div>
-          <div>webpulse-demo-123</div>
-        </div>
       </div>
     </div>
   );
