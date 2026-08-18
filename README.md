@@ -456,8 +456,3 @@ Without Resend or SMTP, emails are logged to the server console instead.
 - PDF report export.
 - Custom domain (CNAME) verification for status pages.
 
----
-
-## License
-
-MIT — for portfolio/demonstration purposes.
