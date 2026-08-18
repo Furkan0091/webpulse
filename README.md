@@ -6,8 +6,6 @@ WebPulse is a production-grade website & API monitoring, incident detection and 
 
 Built to demonstrate real backend engineering and system design: a scheduler, a Redis-backed job queue (BullMQ), background workers, a modular monitoring engine, an incident state machine, multi-tenant data isolation, RBAC, SSRF protection, and time-series aggregation.
 
----
-
 ## Overview
 
 ```
