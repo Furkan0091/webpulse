@@ -44,8 +44,6 @@ Generate analytics (uptime, percentiles, SLA)
 - **Real-time updates** over WebSockets (Socket.IO).
 - **OpenAPI/Swagger** docs at `/api/docs`.
 
----
-
 ## Architecture
 
 ```
@@ -107,9 +105,6 @@ server/                     backend (Express + TypeScript)
 web/                        frontend (React + Vite + Tailwind)
 docker-compose.yml          Postgres + Redis
 ```
-
----
-
 ## Monitoring Engine
 
 Each checker produces a standardized result:
@@ -125,8 +120,6 @@ Each checker produces a standardized result:
 
 **Retries** are bounded and configurable (`retries` per check). A `DEGRADED` status is produced when a check succeeds but exceeds the response-time threshold.
 
----
-
 ## Queue Architecture
 
 | Queue                 | Purpose                                      | Retries / backoff |
@@ -137,8 +130,6 @@ Each checker produces a standardized result:
 | `report-generation`   | SLA / weekly reports                         | 3                 |
 
 The **scheduler** scans for due monitors and claims them atomically (advancing `nextCheckAt`), so multiple scheduler instances never double-enqueue a check.
-
----
 
 ## Incident Lifecycle
 
@@ -158,8 +149,6 @@ RESOLVED (duration recorded)
 
 Escalation re-notifies if an incident stays unresolved past its configured thresholds (e.g. 5/15/30/60 minutes).
 
----
-
 ## Alerting Architecture
 
 ```
@@ -177,8 +166,6 @@ delivery status: PENDING → RETRYING → DELIVERED | FAILED
 
 Webhooks are signed with `X-WebPulse-Signature: sha256=<hmac>`.
 
----
-
 ## Security
 
 - **Password hashing** — bcrypt (12 rounds). Never stored in plaintext.
@@ -190,8 +177,6 @@ Webhooks are signed with `X-WebPulse-Signature: sha256=<hmac>`.
 - **Rate limiting** — separate limits for auth, authenticated API, and public endpoints.
 - **Input validation** — zod on every route.
 - **Secrets redaction** — passwords, tokens, and keys are redacted from logs.
-
----
 
 ## Database Design
 
@@ -214,8 +199,6 @@ audit_logs             activity_logs       deployments     anomalies
 - Time-series queries are indexed on `(monitorId, checkedAt)` and `(organizationId, checkedAt)`.
 - **Retention strategy**: raw checks can be pruned (configurable `RETENTION_RAW_CHECKS_DAYS`); `aggregated_metrics` is the model for hourly/daily rollups that live longer.
 
----
-
 ## API Documentation
 
 Interactive OpenAPI/Swagger UI is served at **`http://localhost:4000/api/docs`** (JSON at `/api/docs.json`).
@@ -231,9 +214,7 @@ Interactive OpenAPI/Swagger UI is served at **`http://localhost:4000/api/docs`**
 | Public | `GET /api/public/status/:slug` (no auth) |
 | Resources | `/channels` · `/alert-policies` · `/maintenance` · `/webhooks` · `/tags` · `/groups` · `/search` · `/audit-logs` |
 | API keys | `GET/POST /api/orgs/:org/api-keys` · `DELETE …/:id` |
-| Org API | `GET/POST /api/v1/monitors` · `…/status` · `…/uptime` · `…/checks` · `GET /api/v1/incidents` (API-key auth) |
-
----
+| Org API | `GET/POST /api/v1/monitors` · `…/status` · `…/uptime` · `…/checks` · `GET /api/v1/incidents` (API-key auth) 
 
 ## Technology Stack
 
@@ -248,8 +229,6 @@ Interactive OpenAPI/Swagger UI is served at **`http://localhost:4000/api/docs`**
 | API docs | OpenAPI / Swagger |
 | Testing | Vitest, Supertest |
 | Infra | Docker Compose (Postgres + Redis) |
-
----
 
 ## Local Setup
 
@@ -311,8 +290,6 @@ password: webpulse-demo-123
 
 Demo status page: http://localhost:5173/status/vertex-status
 
----
-
 ## Environment Variables
 
 See [`server/.env.example`](server/.env.example) for the full list. The important ones:
@@ -330,8 +307,6 @@ See [`server/.env.example`](server/.env.example) for the full list. The importan
 | `SCHEDULER_INTERVAL_MS` | scheduler scan cadence |
 | `RETENTION_RAW_CHECKS_DAYS` | raw check retention |
 
----
-
 ## Database Migration
 
 ```bash
@@ -340,15 +315,11 @@ npm run db:deploy -w server      # apply migrations (production)
 npm run db:seed -w server        # seed demo data
 ```
 
----
-
 ## Seed Data
 
 `server/prisma/seed.ts` creates **Vertex Systems** — a demo org with 7 monitors (website, API, payments, auth, staging, SSL, DNS), ~1,800 check results, a resolved "Payment API degraded" incident with a full timeline, an SSL certificate snapshot, a maintenance window, a published status page, an SLA report, and an API key.
 
 The HTTP/SSL/DNS demo monitors point at **real public endpoints**, so live checks produce real response times and certificate data.
-
----
 
 ## Testing
 
@@ -362,8 +333,6 @@ Coverage:
 - **Integration** — registration/login/token-refresh, duplicate email, weak password; **cross-organization isolation** (user B cannot read user A's monitors); **RBAC** (viewer cannot mutate); **SSRF** (private IPs, localhost, and metadata endpoints are rejected at monitor creation).
 
 > Integration tests require Postgres (and Redis for full coverage) to be running. They create isolated test records and clean up after themselves.
-
----
 
 ## Deployment
 
@@ -437,8 +406,6 @@ SMTP). In Resend:
    to send to your own address while testing.
 
 Without Resend or SMTP, emails are logged to the server console instead.
-
----
 
 ## Future Improvements
 
